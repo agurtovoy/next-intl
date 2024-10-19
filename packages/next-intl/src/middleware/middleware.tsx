@@ -1,4 +1,4 @@
-import {NextRequest, NextResponse} from 'next/server';
+import {NextFetchEvent, NextRequest, NextResponse} from 'next/server';
 import {RoutingConfig, receiveRoutingConfig} from '../routing/config';
 import {Locales, Pathnames} from '../routing/types';
 import {HEADER_LOCALE_NAME} from '../shared/constants';
@@ -24,6 +24,23 @@ import {
   sanitizePathname
 } from './utils';
 
+type NextURL = NextRequest['nextUrl'];
+type MiddlewareResponseInit = Parameters<typeof NextResponse.next>[0];
+
+type MiddlewareResponse = {
+  redirect(
+    url: string | NextURL | URL,
+    init?: number | ResponseInit
+  ): NextResponse<unknown>;
+
+  rewrite(
+    destination: string | NextURL | URL,
+    init?: MiddlewareResponseInit
+  ): NextResponse<unknown>;
+
+  next(init?: MiddlewareResponseInit): NextResponse<unknown>;
+};
+
 export default function createMiddleware<
   AppLocales extends Locales,
   AppPathnames extends Pathnames<AppLocales> = never
@@ -39,7 +56,13 @@ export default function createMiddleware<
     localeDetection: options?.localeDetection ?? routing.localeDetection ?? true
   };
 
-  return function middleware(request: NextRequest) {
+  return function middleware(
+    request: NextRequest,
+    _event?: NextFetchEvent,
+    responseHandler?: MiddlewareResponse
+  ) {
+    const Response = responseHandler ?? NextResponse;
+
     let unsafeExternalPathname: string;
     try {
       // Resolve potential foreign symbols (e.g. /ja/%E7%B4%84 → /ja/約))
@@ -47,7 +70,7 @@ export default function createMiddleware<
     } catch {
       // In case an invalid pathname is encountered, forward
       // it to Next.js which in turn responds with a 400
-      return NextResponse.next();
+      return Response.next();
     }
 
     // Sanitize malicious URIs to prevent open redirect attacks due to
@@ -84,7 +107,7 @@ export default function createMiddleware<
 
       const headers = new Headers(request.headers);
       headers.set(HEADER_LOCALE_NAME, locale);
-      return NextResponse.rewrite(urlObj, {request: {headers}});
+      return Response.rewrite(urlObj, {request: {headers}});
     }
 
     function redirect(url: string, redirectDomain?: string) {
@@ -130,7 +153,7 @@ export default function createMiddleware<
         );
       }
 
-      return NextResponse.redirect(urlObj.toString());
+      return Response.redirect(urlObj.toString());
     }
 
     const unprefixedExternalPathname = getNormalizedPathname(
